@@ -8,6 +8,9 @@ const levels = [
   { name: "地狱", lo: 1, hi: 500, tries: 7 },
 ];
 
+const rpsOptions = ["石头", "剪刀", "布"];
+const rpsSlugMap = { 石头: "rock", 剪刀: "scissors", 布: "paper" };
+
 const state = {
   view: "menu",
   scores: loadScores(),
@@ -19,7 +22,8 @@ const state = {
 };
 
 view.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-action]");
+  const base = event.target instanceof Element ? event.target : event.target.parentElement;
+  const target = base ? base.closest("[data-action]") : null;
   if (!target) return;
   handleAction(target.dataset.action, target);
 });
@@ -216,6 +220,7 @@ function startGuess(levelIndex) {
     attempts: 0,
     logs: [],
     notice: "",
+    shouldScroll: false,
     finished: false,
     won: false,
   };
@@ -229,6 +234,7 @@ function renderGuessPlay() {
     return;
   }
   const triesLeft = g.level.tries - g.attempts;
+  const range = calcRangePercent(g.narrowedLo, g.narrowedHi, g.level.lo, g.level.hi);
   const usedText = g.used.length ? g.used.slice(-8).join(", ") : "（无）";
   const logItems = g.logs.length ? g.logs.map((log) => `<li>${log}</li>`).join("") : "<li>输入你的猜测开始。</li>";
 
@@ -253,11 +259,19 @@ function renderGuessPlay() {
           <div class="value">${usedText}</div>
         </div>
       </div>
-      <div class="mono" style="margin-top: 12px;">${gauge(g.narrowedLo, g.level.lo, g.level.hi)}&nbsp;~&nbsp;${gauge(g.narrowedHi, g.level.lo, g.level.hi)}</div>
+      <div class="range-bar" role="img" aria-label="建议范围 ${g.narrowedLo} 到 ${g.narrowedHi}" style="--start: ${range.start}%; --end: ${range.end}%;">
+        <div class="range-bar__window"></div>
+      </div>
       <div class="log"><ul>${logItems}</ul></div>
       ${renderGuessControls(g)}
     </section>
   `;
+
+  const logBox = view.querySelector(".log");
+  if (g.shouldScroll && logBox) {
+    logBox.scrollTop = logBox.scrollHeight;
+    g.shouldScroll = false;
+  }
 
   if (!g.finished) {
     const input = view.querySelector("input[name='guess']");
@@ -311,6 +325,7 @@ function handleGuessSubmit(raw) {
     g.logs.push(`次数：${g.attempts}`);
     const isRecord = recordBestGuessScore(g.level.name, g.attempts, duration);
     if (isRecord) g.logs.push("新纪录！");
+    g.shouldScroll = true;
     g.finished = true;
     g.won = true;
     render();
@@ -325,10 +340,10 @@ function handleGuessSubmit(raw) {
     g.narrowedHi = Math.min(g.narrowedHi, value - 1);
   }
 
-  g.logs.push(`位置：${value} ${gauge(value, g.level.lo, g.level.hi)}`);
+  g.logs.push(`位置：${value}（${formatRangePercent(value, g.level.lo, g.level.hi)}）`);
   if (g.narrowedLo <= g.narrowedHi) {
     const mid = Math.floor((g.narrowedLo + g.narrowedHi) / 2);
-    g.logs.push(`建议范围中点：${mid} ${gauge(mid, g.level.lo, g.level.hi)}`);
+    g.logs.push(`建议范围中点：${mid}（${formatRangePercent(mid, g.level.lo, g.level.hi)}）`);
   }
 
   if (g.attempts >= g.level.tries) {
@@ -337,6 +352,7 @@ function handleGuessSubmit(raw) {
     g.won = false;
   }
 
+  g.shouldScroll = true;
   render();
 }
 
@@ -351,22 +367,117 @@ function startRps() {
   setView("rps");
 }
 
+function rpsSlug(choice) {
+  return rpsSlugMap[choice] || "unknown";
+}
+
+function rpsOutcomeClass(outcome) {
+  if (outcome === "你赢了") return "is-win";
+  if (outcome === "你输了") return "is-lose";
+  return "is-draw";
+}
+
+function rpsWinner(outcome) {
+  if (outcome === "你赢了") return "you";
+  if (outcome === "你输了") return "bot";
+  return "draw";
+}
+
+function renderRpsIcon(choice, className = "") {
+  const slug = rpsSlug(choice);
+  const extra = className ? ` ${className}` : "";
+  switch (slug) {
+    case "rock":
+      return `<svg class="rps-icon${extra}" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <path d="M16 30c0-8 6-14 14-14h4c8 0 14 6 14 14v8c0 8-6 14-14 14H30c-8 0-14-6-14-14v-8z" fill="currentColor"/>
+        <path d="M22 26c4-6 14-8 20-3" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+      </svg>`;
+    case "scissors":
+      return `<svg class="rps-icon${extra}" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <circle cx="20" cy="22" r="7" fill="none" stroke="currentColor" stroke-width="3"/>
+        <circle cx="44" cy="22" r="7" fill="none" stroke="currentColor" stroke-width="3"/>
+        <path d="M24 28l16 18M40 28L24 46" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      </svg>`;
+    case "paper":
+      return `<svg class="rps-icon${extra}" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <path d="M18 12h22l8 8v32H18z" fill="currentColor" opacity="0.9"/>
+        <path d="M40 12v8h8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+      </svg>`;
+    default:
+      return "";
+  }
+}
+
+function renderRpsCard(role, choice, outcome) {
+  const hasChoice = Boolean(choice);
+  const slug = hasChoice ? rpsSlug(choice) : "unknown";
+  const label = hasChoice ? choice : "等待出拳";
+  const winner = outcome ? rpsWinner(outcome) : "";
+  const isWinner = winner === role;
+  const isLoser = winner && winner !== "draw" && winner !== role;
+  const resultClass = isWinner ? "is-winner" : isLoser ? "is-loser" : "";
+  const badge = isWinner
+    ? '<div class="rps-badge is-win">WIN</div>'
+    : isLoser
+    ? '<div class="rps-badge is-lose">LOSE</div>'
+    : "";
+  const cardClass = `rps-card rps-card--${role} ${hasChoice ? `rps-choice--${slug}` : "is-idle"} ${resultClass}`.trim();
+  const icon = hasChoice ? renderRpsIcon(choice) : '<div class="rps-placeholder">?</div>';
+  return `
+    <div class="${cardClass}">
+      ${badge}
+      ${icon}
+      <div class="rps-card-label">${label}</div>
+    </div>
+  `;
+}
+
+function renderRpsButtons(selectedChoice) {
+  return rpsOptions
+    .map((choice) => {
+      const slug = rpsSlug(choice);
+      const selectedClass = choice === selectedChoice ? "is-selected" : "";
+      return `
+        <button class="rps-btn rps-choice--${slug} ${selectedClass}" data-action="rps-play" data-choice="${choice}">
+          ${renderRpsIcon(choice, "rps-btn-icon")}
+          <span>${choice}</span>
+        </button>
+      `;
+    })
+    .join("");
+}
+
 function renderRps() {
-  const rps = state.rps || { scores: { win: 0, lose: 0, draw: 0 }, history: [] };
+  const rps = state.rps || { scores: { win: 0, lose: 0, draw: 0 }, history: [], last: null };
   const historyItems = rps.history.length
     ? rps.history.slice(-6).map((item) => `<li>${item}</li>`).join("")
     : "<li>暂无对局</li>";
   const lastMatch = rps.last
     ? `你：${rps.last.you} / 我：${rps.last.bot} → ${rps.last.outcome}`
     : "准备出拳吧。";
+  const outcome = rps.last ? rps.last.outcome : "";
+  const outcomeClass = outcome ? rpsOutcomeClass(outcome) : "";
+  const stageClass = `rps-stage ${rps.last ? "is-active" : "is-idle"} ${outcomeClass}`.trim();
+  const resultClass = `rps-result ${rps.last ? outcomeClass : "is-idle"}`.trim();
+  const resultText = outcome || "出拳后显示结果";
 
   view.innerHTML = `
     <section class="panel">
       <h2>石头剪刀布</h2>
+      <div class="${stageClass}">
+        <div class="rps-side">
+          <div class="rps-label">你</div>
+          ${renderRpsCard("you", rps.last ? rps.last.you : "", outcome)}
+        </div>
+        <div class="rps-vs">VS</div>
+        <div class="rps-side">
+          <div class="rps-label">系统</div>
+          ${renderRpsCard("bot", rps.last ? rps.last.bot : "", outcome)}
+        </div>
+      </div>
+      <div class="${resultClass}">${resultText}</div>
       <div class="rps-grid">
-        <button class="rps-btn" data-action="rps-play" data-choice="石头">石头</button>
-        <button class="rps-btn" data-action="rps-play" data-choice="剪刀">剪刀</button>
-        <button class="rps-btn" data-action="rps-play" data-choice="布">布</button>
+        ${renderRpsButtons(rps.last ? rps.last.you : "")}
       </div>
       <div class="score-row">
         <div class="score-pill">胜 ${rps.scores.win}</div>
@@ -382,8 +493,9 @@ function renderRps() {
   `;
 }
 
+
 function playRps(choice) {
-  const options = ["石头", "剪刀", "布"];
+  const options = rpsOptions;
   if (!options.includes(choice)) return;
   if (!state.rps) {
     state.rps = { scores: { win: 0, lose: 0, draw: 0 }, history: [], last: null };
@@ -714,16 +826,25 @@ function randInt(lo, hi) {
   return Math.floor(Math.random() * (hi - lo + 1)) + lo;
 }
 
-function gauge(value, lo, hi, width = 28) {
-  const safeWidth = Math.max(width, 10);
-  let idx = 0;
-  if (hi > lo) {
-    idx = Math.round(((value - lo) / (hi - lo)) * (safeWidth - 1));
-    idx = Math.max(0, Math.min(safeWidth - 1, idx));
+function calcRangePercent(start, end, lo, hi) {
+  if (hi <= lo) {
+    return { start: 0, end: 100 };
   }
-  const bar = new Array(safeWidth).fill("-");
-  bar[idx] = "|";
-  return `[${bar.join("")}]`;
+  const safeStart = Math.min(Math.max(start, lo), hi);
+  const safeEnd = Math.min(Math.max(end, lo), hi);
+  const range = hi - lo;
+  const startPct = round(((safeStart - lo) / range) * 100, 2);
+  const endPct = round(((safeEnd - lo) / range) * 100, 2);
+  return { start: Math.min(startPct, endPct), end: Math.max(startPct, endPct) };
+}
+
+function formatRangePercent(value, lo, hi) {
+  if (hi <= lo) {
+    return "0%";
+  }
+  const safeValue = Math.min(Math.max(value, lo), hi);
+  const percent = Math.round(((safeValue - lo) / (hi - lo)) * 100);
+  return `${percent}%`;
 }
 
 function loadScores() {
