@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alma Mini Game</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&family=Space+Mono:wght@400;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="backdrop">
+    <div class="blob blob-a"></div>
+    <div class="blob blob-b"></div>
+    <div class="blob blob-c"></div>
+    <div class="grid-glow"></div>
+  </div>
+
+  <div class="app">
+    <header class="site-header">
+      <pre class="banner">
+    _    _                 ____        _   _                 
+   / \  | | _ __ ___   __ |  _ \ _   _| |_| |__   ___  _ __ 
+  / _ \ | || '_ ` _ \ / _`| |_) | | | | __| '_ \ / _ \| '__|
+ / ___ \| || | | | | | (_ |  __/| |_| | |_| | | | (_) | |   
+/_/   \_\_||_| |_| |_|\__,|_|    \__, |\__|_| |_|\___/|_|   
+                                 |___/                      
+      </pre>
+      <div class="subtitle">
+        <span class="title">Alma Mini Game</span>
+        <span class="desc">把命令行小游戏搬到 Web，保留手感，换上新皮肤。</span>
+      </div>
+    </header>
+
+    <main id="view" class="view" aria-live="polite"></main>
+
+    <footer class="site-footer">
+      <div>数据保存在浏览器本地（localStorage）。</div>
+      <div class="hint">提示：手机上也可以玩，建议横屏。</div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

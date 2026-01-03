@@ -2,5 +2,6 @@
   "guess_number:简单": {
     "attempts": 5,
     "seconds": 39.743
-  }
+  },
+  "reaction:best_seconds": 0.3094
 }

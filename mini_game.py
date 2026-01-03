@@ -50,6 +50,43 @@ def box(lines: list[str], *, title: str | None = None, width: int = 60) -> str:
 def pause(text: str = "回车继续...") -> None:
     prompt(text)
 
+def gauge(value: int, lo: int, hi: int, *, width: int = 28) -> str:
+    width = max(width, 10)
+    if hi <= lo:
+        idx = 0
+    else:
+        idx = int(round((value - lo) / (hi - lo) * (width - 1)))
+        idx = max(0, min(width - 1, idx))
+    bar = ["-"] * width
+    bar[idx] = "|"
+    return "[" + "".join(bar) + "]"
+
+
+def prompt_int_or_back(
+    text: str,
+    *,
+    min_value: int | None = None,
+    max_value: int | None = None,
+    back_tokens: tuple[str, ...] = ("0", "b", "B"),
+) -> int | None:
+    while True:
+        raw = prompt(text).strip()
+        if raw in back_tokens:
+            return None
+        try:
+            value = int(raw)
+        except ValueError:
+            print("请输入整数（或 0 返回）。")
+            continue
+
+        if min_value is not None and value < min_value:
+            print(f"请输入 >= {min_value} 的整数。")
+            continue
+        if max_value is not None and value > max_value:
+            print(f"请输入 <= {max_value} 的整数。")
+            continue
+        return value
+
 
 BANNER = [
     "    _    _                 ____        _   _                 ",
@@ -133,9 +170,30 @@ def game_guess_number() -> None:
     target = random.randint(config.lo, config.hi)
     used: list[int] = []
     start = time.perf_counter()
+    narrowed_lo = config.lo
+    narrowed_hi = config.hi
 
     for attempt in range(1, config.tries + 1):
-        guess = prompt_int(f"[{attempt}/{config.tries}] 请输入你的猜测：", min_value=config.lo, max_value=config.hi)
+        tries_left = config.tries - attempt + 1
+        print()
+        print(
+            box(
+                [
+                    f"范围：{config.lo}-{config.hi}    建议范围：{narrowed_lo}-{narrowed_hi}",
+                    f"剩余次数：{tries_left}",
+                    f"已猜：{', '.join(map(str, used[-8:])) if used else '（无）'}",
+                    "输入 0 返回（放弃本局）。",
+                ],
+                title="状态",
+            )
+        )
+        guess = prompt_int_or_back(
+            f"[{attempt}/{config.tries}] 请输入你的猜测：",
+            min_value=config.lo,
+            max_value=config.hi,
+        )
+        if guess is None:
+            return
         used.append(guess)
         if guess == target:
             duration = time.perf_counter() - start
@@ -156,8 +214,14 @@ def game_guess_number() -> None:
             return
         if guess < target:
             print("太小了。")
+            narrowed_lo = max(narrowed_lo, guess + 1)
         else:
             print("太大了。")
+            narrowed_hi = min(narrowed_hi, guess - 1)
+        print(f"位置：{guess} {gauge(guess, config.lo, config.hi)}")
+        if narrowed_lo <= narrowed_hi:
+            mid = (narrowed_lo + narrowed_hi) // 2
+            print(f"建议范围中点：{mid} {gauge(mid, config.lo, config.hi)}")
 
     print()
     print(box([f"次数用完了！答案是 {target}。"], title="失败"))
@@ -198,25 +262,42 @@ def game_rps() -> None:
     win_against: dict[RPS, RPS] = {"石头": "剪刀", "剪刀": "布", "布": "石头"}
 
     scores = {"win": 0, "lose": 0, "draw": 0}
+    history: list[str] = []
     while True:
         print()
-        print("1) 石头  2) 剪刀  3) 布  0) 返回")
-        choice = prompt_int("你出什么：", min_value=0, max_value=3)
-        if choice == 0:
+        recent = history[-5:]
+        recent_lines = ["最近对局："] + (recent if recent else ["（无）"])
+        print(
+            box(
+                [
+                    "1) 石头    2) 剪刀    3) 布",
+                    "0) 返回",
+                    f"战绩：胜 {scores['win']} / 负 {scores['lose']} / 平 {scores['draw']}",
+                    *recent_lines,
+                ],
+                title="出拳",
+            )
+        )
+        choice = prompt_int_or_back("你出什么：", min_value=0, max_value=3)
+        if choice is None or choice == 0:
             return
         you = mapping[choice]
         bot: RPS = random.choice(list(mapping.values()))
-        print(f"你：{you}  vs  我：{bot}")
+        print()
+        print(box([f"你：{you}", f"我：{bot}"], title="对局"))
         if you == bot:
-            print("平局。")
+            outcome = "平局"
             scores["draw"] += 1
         elif win_against[you] == bot:
-            print("你赢了！")
+            outcome = "你赢了"
             scores["win"] += 1
         else:
-            print("你输了。")
+            outcome = "你输了"
             scores["lose"] += 1
-        print(f"当前战绩：胜 {scores['win']} / 负 {scores['lose']} / 平 {scores['draw']}")
+        history.append(f"{you} vs {bot} → {outcome}")
+        if len(history) > 6:
+            history = history[-6:]
+        print(box([outcome, f"当前战绩：胜 {scores['win']} / 负 {scores['lose']} / 平 {scores['draw']}"], title="结果"))
 
 
 def game_reaction() -> None:
@@ -229,7 +310,9 @@ def game_reaction() -> None:
     )
     print()
 
-    rounds = prompt_int("要测几次（1-10）：", min_value=1, max_value=10)
+    rounds = prompt_int_or_back("要测几次（1-10，0 返回）：", min_value=0, max_value=10)
+    if rounds is None or rounds == 0:
+        return
     times: list[float] = []
     fouls = 0
 
@@ -237,12 +320,13 @@ def game_reaction() -> None:
         print()
         prompt(f"[{i}/{rounds}] 准备好了就回车开始...")
         wait = random.uniform(1.5, 4.0)
-        print("准备…")
+        print(box(["准备…", "等待 GO! 出现后立刻回车"], title="提示"))
         start = time.perf_counter()
         while time.perf_counter() - start < wait:
             time.sleep(0.01)
 
-        print("GO!")
+        print()
+        print(box(["GO!"], title="现在"))
         t0 = time.perf_counter()
         try:
             input()
@@ -261,6 +345,7 @@ def game_reaction() -> None:
     if times:
         best = min(times)
         avg = sum(times) / len(times)
+        per_round = [f"第{i+1}次：{t*1000:.0f}ms" for i, t in enumerate(times[:8])]
         print(
             box(
                 [
@@ -268,6 +353,7 @@ def game_reaction() -> None:
                     f"犯规：{fouls}",
                     f"最快：{best*1000:.0f}ms",
                     f"平均：{avg*1000:.0f}ms",
+                    *per_round,
                 ],
                 title="结果",
             )
@@ -314,6 +400,7 @@ def main(argv: list[str]) -> int:
         print(
             box(
                 [
+                    "输入数字选择；任意时刻 Ctrl+C 退出。",
                     "1) 猜数字",
                     "2) 石头剪刀布",
                     "3) 反应测试",
