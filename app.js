@@ -8,6 +8,16 @@ const levels = [
   { name: "地狱", lo: 1, hi: 500, tries: 7 },
 ];
 
+const memoryLevels = [
+  { name: "入门", pairs: 6, cols: 3 },      // 12 cards, 3x4
+  { name: "简单", pairs: 8, cols: 4 },      // 16 cards, 4x4
+  { name: "中等", pairs: 12, cols: 4 },     // 24 cards, 4x6
+  { name: "困难", pairs: 18, cols: 6 },     // 36 cards, 6x6
+];
+
+// Memory card icons (using emoji for simplicity, styled with CSS)
+const memoryIcons = ['⚡', '⭐', '🎮', '🏆', '💎', '🔥', '🌟', '🎯', '🚀', '💫', '🔮', '👑', '🎪', '🎨', '🎭', '🎪'];
+
 const rpsOptions = ["石头", "剪刀", "布"];
 const rpsSlugMap = { 石头: "rock", 剪刀: "scissors", 布: "paper" };
 
@@ -18,6 +28,7 @@ const state = {
   rps: null,
   reaction: null,
   reactionNotice: "",
+  memory: null,
   timers: [],
 };
 
@@ -74,6 +85,18 @@ function handleAction(action, target) {
     case "reaction-retry":
       setView("reaction-setup");
       break;
+    case "memory-select":
+      setView("memory-select");
+      break;
+    case "memory-start":
+      startMemory(Number(target.dataset.level));
+      break;
+    case "memory-flip":
+      flipMemoryCard(Number(target.dataset.index));
+      break;
+    case "memory-retry":
+      if (state.memory) startMemory(state.memory.levelIndex);
+      break;
     case "scores":
       setView("scores");
       break;
@@ -117,6 +140,12 @@ function render() {
     case "reaction-play":
       renderReactionPlay();
       break;
+    case "memory-select":
+      renderMemorySelect();
+      break;
+    case "memory-play":
+      renderMemoryPlay();
+      break;
     case "scores":
       renderScores();
       break;
@@ -148,8 +177,13 @@ function renderMenu() {
           <div class="title">反应测试</div>
           <div class="meta">GO! 出现就点</div>
         </button>
-        <button class="card-btn" data-action="scores" style="--delay: 0.15s">
+        <button class="card-btn" data-action="memory-select" style="--delay: 0.15s">
           <span class="tag">04</span>
+          <div class="title">记忆翻牌</div>
+          <div class="meta">配对记忆 + 速度挑战</div>
+        </button>
+        <button class="card-btn" data-action="scores" style="--delay: 0.2s">
+          <span class="tag">05</span>
           <div class="title">查看记录</div>
           <div class="meta">浏览器本地记录</div>
         </button>
@@ -862,4 +896,475 @@ function saveScores() {
   } catch (error) {
     // Ignore storage failures
   }
+}
+
+/* ============================================
+   ARCADE SCENES - Dynamic Game Animations
+   ============================================ */
+
+// Scene templates with their HTML structures
+const sceneTemplates = {
+  'scene-pacman': `
+    <div class="maze"></div>
+    <div class="pacman"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="ghost"></div>
+  `,
+  'scene-invaders': `
+    <div class="stars"></div>
+    <div class="invader-row">
+      <div class="invader"></div>
+      <div class="invader"></div>
+      <div class="invader"></div>
+      <div class="invader"></div>
+    </div>
+    <div class="laser"></div>
+    <div class="ship"></div>
+    <div class="explosion"></div>
+  `,
+  'scene-tetris': `
+    <div class="grid"></div>
+    <div class="falling-piece"></div>
+    <div class="landed-piece"></div>
+    <div class="line-flash"></div>
+  `,
+  'scene-breakout': `
+    <div class="bricks">
+      <div class="brick"></div>
+      <div class="brick"></div>
+      <div class="brick"></div>
+      <div class="brick"></div>
+      <div class="brick"></div>
+      <div class="brick"></div>
+      <div class="brick"></div>
+      <div class="brick"></div>
+    </div>
+    <div class="ball"></div>
+    <div class="paddle"></div>
+  `,
+  'scene-snake': `
+    <div class="snake-segment snake-head"></div>
+    <div class="snake-segment snake-body-1"></div>
+    <div class="snake-segment snake-body-2"></div>
+    <div class="snake-segment snake-body-3"></div>
+    <div class="snake-segment snake-body-4"></div>
+    <div class="food"></div>
+  `,
+  'scene-pong': `
+    <div class="center-line"></div>
+    <div class="score score-left">2</div>
+    <div class="score score-right">1</div>
+    <div class="paddle paddle-left"></div>
+    <div class="paddle paddle-right"></div>
+    <div class="ball"></div>
+  `,
+  'scene-dino': `
+    <div class="ground"></div>
+    <div class="cactus"></div>
+    <div class="dino"></div>
+    <div class="cloud"></div>
+  `
+};
+
+// Configuration
+const SCENE_CONFIG = {
+  maxScenes: 4,            // Maximum number of scenes on screen
+  spawnInterval: 3500,     // Time between spawns (ms)
+  minLifetime: 8000,       // Minimum display time (ms)
+  maxLifetime: 14000,      // Maximum display time (ms)
+  padding: 40              // Padding from edges
+};
+
+// Track active scenes
+const activeScenes = new Set();
+
+// Get all available scene types
+const sceneTypes = Object.keys(sceneTemplates);
+
+// Initialize the arcade scenes system
+function initArcadeGhosts() {
+  const container = document.getElementById('arcadeGhosts');
+  if (!container) return;
+
+  // Start spawning scenes
+  spawnScene();
+
+  // Set up interval for spawning new scenes
+  setInterval(() => {
+    if (activeScenes.size < SCENE_CONFIG.maxScenes) {
+      spawnScene();
+    }
+  }, SCENE_CONFIG.spawnInterval);
+}
+
+// Create a single game scene
+function spawnScene() {
+  const container = document.getElementById('arcadeGhosts');
+  if (!container) return;
+
+  const scene = document.createElement('div');
+  const sceneType = sceneTypes[Math.floor(Math.random() * sceneTypes.length)];
+
+  scene.className = `game-scene ${sceneType}`;
+  scene.innerHTML = sceneTemplates[sceneType];
+
+  // Get existing scene positions for overlap detection
+  const existingPositions = [];
+  activeScenes.forEach(existingScene => {
+    const rect = existingScene.getBoundingClientRect();
+    existingPositions.push({
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height
+    });
+  });
+
+  // Random position (avoiding center and other scenes)
+  const position = getRandomPosition(existingPositions, sceneType);
+  scene.style.left = `${position.x}px`;
+  scene.style.top = `${position.y}px`;
+
+  // Random animation delay for more natural feel
+  const delay = Math.random() * 3;
+  scene.style.animationDelay = `${delay}s`;
+
+  // Random scale variation (subtle, since scenes are detailed)
+  const scale = 0.85 + Math.random() * 0.25;
+  scene.style.transform = `scale(${scale})`;
+
+  // Set lifetime
+  const lifetime = SCENE_CONFIG.minLifetime + Math.random() * (SCENE_CONFIG.maxLifetime - SCENE_CONFIG.minLifetime);
+
+  container.appendChild(scene);
+  activeScenes.add(scene);
+
+  // Remove scene after lifetime with fade out
+  setTimeout(() => {
+    scene.style.transition = 'opacity 2.5s ease';
+    scene.style.opacity = '0';
+    setTimeout(() => {
+      if (scene.parentNode) {
+        scene.parentNode.removeChild(scene);
+      }
+      activeScenes.delete(scene);
+
+      // Spawn a replacement (most of the time)
+      if (Math.random() > 0.25) {
+        setTimeout(spawnScene, 800 + Math.random() * 2000);
+      }
+    }, 2500);
+  }, lifetime);
+}
+
+// Get random position avoiding the center content area and other scenes
+function getRandomPosition(existingPositions = [], sceneType) {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const padding = SCENE_CONFIG.padding;
+
+  // Scene dimensions based on type
+  const sceneDimensions = {
+    'scene-pacman': { width: 120, height: 80 },
+    'scene-invaders': { width: 120, height: 100 },
+    'scene-tetris': { width: 100, height: 120 },
+    'scene-breakout': { width: 120, height: 100 },
+    'scene-snake': { width: 100, height: 100 },
+    'scene-pong': { width: 120, height: 80 },
+    'scene-dino': { width: 140, height: 70 }
+  };
+
+  const dims = sceneDimensions[sceneType] || { width: 120, height: 100 };
+
+  // Define the "safe zone" in the center (where the app content is)
+  const safeZone = {
+    x: viewportWidth * 0.25,
+    y: viewportHeight * 0.2,
+    width: viewportWidth * 0.5,
+    height: viewportHeight * 0.6
+  };
+
+  let x, y;
+  let attempts = 0;
+  const maxAttempts = 30;
+
+  do {
+    // Random position within viewport
+    x = padding + Math.random() * (viewportWidth - padding * 2 - dims.width);
+    y = padding + Math.random() * (viewportHeight - padding * 2 - dims.height);
+
+    attempts++;
+
+    // Check if position is outside safe zone
+    const inSafeZone = (
+      x > safeZone.x - dims.width - 20 &&
+      x < safeZone.x + safeZone.width &&
+      y > safeZone.y - dims.height - 20 &&
+      y < safeZone.y + safeZone.height
+    );
+
+    // Check if position overlaps with existing scenes
+    let overlapsExisting = false;
+    for (const existing of existingPositions) {
+      // Add buffer zone for overlap detection
+      const buffer = 30;
+      if (
+        x < existing.x + existing.width + buffer &&
+        x + dims.width + buffer > existing.x &&
+        y < existing.y + existing.height + buffer &&
+        y + dims.height + buffer > existing.y
+      ) {
+        overlapsExisting = true;
+        break;
+      }
+    }
+
+    if ((!inSafeZone && !overlapsExisting) || attempts >= maxAttempts) {
+      break;
+    }
+  } while (true);
+
+  return { x: Math.floor(x), y: Math.floor(y) };
+}
+
+/* ============================================
+   MEMORY MATCH GAME
+   ============================================ */
+
+function renderMemorySelect() {
+  view.innerHTML = `
+    <section class="panel">
+      <h2>选择难度</h2>
+      <p>卡片数量越多，对记忆力的考验越大。</p>
+      <div class="menu-grid">
+        ${memoryLevels
+          .map(
+            (level, index) => `
+          <button class="card-btn" data-action="memory-start" data-level="${index}" style="--delay: ${index * 0.05}s">
+            <span class="tag">${level.name}</span>
+            <div class="title">${level.pairs * 2} 张卡片</div>
+            <div class="meta">${level.pairs} 对配对</div>
+          </button>
+        `
+          )
+          .join("")}
+      </div>
+      <div class="action-row">
+        <button class="btn ghost" data-action="menu">返回主菜单</button>
+      </div>
+    </section>
+  `;
+}
+
+function startMemory(levelIndex) {
+  const level = memoryLevels[levelIndex];
+  if (!level) return;
+
+  // Create and shuffle cards
+  const icons = memoryIcons.slice(0, level.pairs);
+  const cards = [...icons, ...icons];
+  shuffleArray(cards);
+
+  state.memory = {
+    levelIndex,
+    level,
+    cards: cards.map((icon, index) => ({
+      id: index,
+      icon: icon,
+      isFlipped: false,
+      isMatched: false
+    })),
+    flipped: [],
+    matched: 0,
+    moves: 0,
+    startTime: performance.now(),
+    isLocked: false,
+    finished: false
+  };
+
+  setView("memory-play");
+}
+
+function renderMemoryPlay() {
+  const m = state.memory;
+  if (!m) {
+    setView("memory-select");
+    return;
+  }
+
+  const elapsed = ((performance.now() - m.startTime) / 1000).toFixed(1);
+  const progress = `${m.matched}/${m.level.pairs} 对`;
+
+  // Calculate grid layout
+  const rows = Math.ceil(m.cards.length / m.level.cols);
+
+  view.innerHTML = `
+    <section class="panel">
+      <h2>记忆翻牌 - ${m.level.name}</h2>
+      <div class="status-grid">
+        <div class="status-card">
+          <div class="label">进度</div>
+          <div class="value">${progress}</div>
+        </div>
+        <div class="status-card">
+          <div class="label">翻牌次数</div>
+          <div class="value">${m.moves}</div>
+        </div>
+        <div class="status-card">
+          <div class="label">用时</div>
+          <div class="value">${elapsed}s</div>
+        </div>
+      </div>
+      <div class="memory-grid" style="grid-template-columns: repeat(${m.level.cols}, 1fr);">
+        ${m.cards.map((card, index) => renderMemoryCard(card, index)).join("")}
+      </div>
+      ${renderMemoryControls(m)}
+    </section>
+  `;
+
+  // Update elapsed time every 100ms
+  if (!m.finished) {
+    setTimeout(() => {
+      const currentView = state.view;
+      if (currentView === "memory-play") {
+        render();
+      }
+    }, 100);
+  }
+}
+
+function renderMemoryCard(card, index) {
+  let classes = "memory-card";
+  if (card.isFlipped || card.isMatched) classes += " is-flipped";
+  if (card.isMatched) classes += " is-matched";
+
+  return `
+    <button
+      class="${classes}"
+      data-action="memory-flip"
+      data-index="${index}"
+      ${card.isFlipped || card.isMatched || state.memory?.isLocked ? 'disabled' : ''}
+      aria-label="${card.isFlipped || card.isMatched ? card.icon : '翻牌'}"
+    >
+      <div class="memory-card-inner">
+        <div class="memory-card-front">${card.icon}</div>
+        <div class="memory-card-back">?</div>
+      </div>
+    </button>
+  `;
+}
+
+function renderMemoryControls(m) {
+  if (m.finished) {
+    const duration = ((performance.now() - m.startTime) / 1000).toFixed(2);
+    const isNewRecord = recordBestMemoryScore(m.level.name, m.moves, duration);
+
+    return `
+      <div class="action-row">
+        <button class="btn primary" data-action="memory-retry">再来一局</button>
+        <button class="btn ghost" data-action="memory-select">返回难度</button>
+        <button class="btn ghost" data-action="menu">回主菜单</button>
+      </div>
+      <div class="log" style="margin-top: 16px;">
+        <ul>
+          <li>🎉 完成！</li>
+          <li>用时：${duration}秒</li>
+          <li>翻牌：${m.moves} 次</li>
+          ${isNewRecord ? '<li style="color: var(--neon-yellow);">✨ 新纪录！</li>' : ''}
+        </ul>
+      </div>
+    `;
+  }
+
+  return "";
+}
+
+function flipMemoryCard(index) {
+  const m = state.memory;
+  if (!m || m.isLocked || m.finished) return;
+
+  const card = m.cards[index];
+  if (card.isFlipped || card.isMatched) return;
+
+  // Flip the card
+  card.isFlipped = true;
+  m.flipped.push(index);
+  m.moves++;
+
+  // Check if two cards are flipped
+  if (m.flipped.length === 2) {
+    m.isLocked = true;
+
+    const [firstIndex, secondIndex] = m.flipped;
+    const firstCard = m.cards[firstIndex];
+    const secondCard = m.cards[secondIndex];
+
+    if (firstCard.icon === secondCard.icon) {
+      // Match found!
+      firstCard.isMatched = true;
+      secondCard.isMatched = true;
+      m.matched++;
+      m.flipped = [];
+      m.isLocked = false;
+
+      // Check if game is complete
+      if (m.matched === m.level.pairs) {
+        m.finished = true;
+        const duration = (performance.now() - m.startTime) / 1000;
+        recordBestMemoryScore(m.level.name, m.moves, duration);
+      }
+    } else {
+      // No match, flip back after delay
+      setTimeout(() => {
+        firstCard.isFlipped = false;
+        secondCard.isFlipped = false;
+        m.flipped = [];
+        m.isLocked = false;
+        render();
+      }, 800);
+    }
+  }
+
+  render();
+}
+
+function recordBestMemoryScore(levelName, moves, seconds) {
+  const key = `memory:${levelName}`;
+  const current = { moves, seconds: round(seconds, 2) };
+  const existing = state.scores[key];
+  let better = true;
+
+  if (existing && typeof existing === "object") {
+    const bestMoves = Number(existing.moves);
+    const bestSeconds = Number(existing.seconds);
+    if (Number.isFinite(bestMoves) && Number.isFinite(bestSeconds)) {
+      better = moves < bestMoves || (moves === bestMoves && seconds < bestSeconds);
+    }
+  }
+
+  if (better) {
+    state.scores[key] = current;
+    saveScores();
+  }
+
+  return better;
+}
+
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+}
+
+// Start the arcade scenes system when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initArcadeGhosts);
+} else {
+  initArcadeGhosts();
 }
